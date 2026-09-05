@@ -119,6 +119,7 @@ class SensorMapper:
                 device_model = img
                 battery = sensor.get("batt", "")
                 signal = sensor.get("signal", "")
+                rssi = sensor.get("rssi", "")
 
                 # Extract channel from name (e.g., "Soil moisture CH2" → "2").
                 # Fall back to the numeric type field when the name has been
@@ -157,6 +158,7 @@ class SensorMapper:
                     "device_model": device_model,
                     "battery": battery,
                     "signal": signal,
+                    "rssi": rssi,
                     "raw_data": sensor,
                 }
 
@@ -418,7 +420,10 @@ class SensorMapper:
             sensor_type.lower() in ("wh68", "weather_station")
             or "solar & wind" in sensor_type.lower()
         ):
-            # Main weather station
+            # Main weather station. Older firmware reports these via the flat
+            # WU-style keys below; newer gateways (e.g. GW1100A) instead emit
+            # WH68 readings through common_list hex IDs, same as WH69/WS90 but
+            # without rain (WH68 has no rain gauge) — issue #231.
             keys.extend(
                 [
                     "tempf",
@@ -433,6 +438,19 @@ class SensorMapper:
                     "baromabsin",
                     "solarradiation",
                     "uv",
+                    "0x02",  # Temperature
+                    "0x03",  # Dewpoint
+                    "0x04",  # Wind Chill
+                    "0x05",  # Heat Index
+                    "0x07",  # Humidity
+                    "0x0A",  # Wind direction
+                    "0x6D",  # Wind direction avg
+                    "0x0B",  # Wind speed
+                    "0x0C",  # Wind gust
+                    "0x19",  # Max daily gust
+                    "0x15",  # Solar radiation
+                    "0x16",  # UV irradiance
+                    "0x17",  # UV index
                     "wh68batt",
                 ]
             )
@@ -851,6 +869,7 @@ class SensorMapper:
             "lightning": "lightning",
             "batt": "battery",
             "cap_volt": "capacitor_voltage",  # must precede generic "volt"
+            "lds_voltage": "lds_voltage",  # must precede generic "volt"
             "volt": "voltage",
             "solar_lux": "solar_lux",  # must precede generic "solar"
             "solar": "solar_radiation",
@@ -870,6 +889,8 @@ class SensorMapper:
             return "pm25_battery"
         elif "leak" in battery_key:
             return "leak_battery"
+        elif "lds" in battery_key:
+            return "lds_battery"
         elif "wh57" in battery_key:
             return "lightning_battery"
         elif "wh40" in battery_key:

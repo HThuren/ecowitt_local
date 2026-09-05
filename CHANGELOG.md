@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.23] - 2026-09-04
+
+### Fixed
+- **WN20 rain gauge showed zero entities when a WH69 was also present on the same gateway**: The top-level `rain` block's readings were force-attributed to the WH69 device whenever a WH69 was registered, ahead of WN20, on the assumption that WH69 is always the tipping-bucket source for that block. But WH69 already reports its own rain readings via `common_list` hex IDs, so when a separate physical WN20 rain gauge is also paired, the `rain` block actually belongs to the WN20 — not the WH69. All of the WN20's readings (and its battery) were silently merged into the WH69 device instead of creating the WN20's own entities, leaving the WN20 device with none. The priority order now checks WN20 first, so it correctly claims the `rain` block when present; WH69 remains the fallback for gateways that report WH69's rain only through this block and have no WN20 (issue #95), and WH40 remains the last fallback. (issue #239)
+
+## [1.7.22] - 2026-09-02
+
+### Added
+- **Italian translation** for the config/options flow and services, contributed by @damianog (PR #236).
+- **Danish translation** for the config/options flow and services, contributed by @HThuren (PR #221).
+
+## [1.7.21] - 2026-08-29
+
+### Fixed
+- **Entity creation crashed on newer HA core betas with `RuntimeError: ... calls device_registry.async_get_or_create with a deprecated via_device parameter`**: HA core is removing the `via_device` identifier-tuple parameter (used to link a sensor's device to its gateway) in favor of a pre-resolved `via_device_id`. On HA builds that already enforce this, adding any per-sensor device (e.g. a WS90's Outdoor Temp) raised instead of merely logging a deprecation warning, so the entity was silently dropped. A new compatibility helper detects at runtime whether the installed HA core still expects `via_device` or now requires `via_device_id`, resolving the gateway's registry device id when needed, so device linking keeps working on both older and newer HA core releases. (issue #232)
+
+## [1.7.20] - 2026-08-27
+
+### Fixed
+- **WH68 weather station entities were created under the gateway device instead of the WH68 device**: The WH68 sensor-type mapping only generated the legacy flat WU-style live-data keys (`tempf`, `windspeedmph`, `solarradiation`, `uv`, etc.). Newer gateway firmware (e.g. GW1100A) instead reports WH68 readings through `common_list` hex IDs, same as WH69/WS90 but without rain (WH68 has no rain gauge). Since none of those hex IDs were in the WH68 key list, `get_hardware_id()` returned `None` for them, so the readings fell through to the gateway device while the WH68 device itself was created with zero entities. The WH68 key list now also includes the relevant common_list hex IDs (temperature, dew point, wind chill, heat index, humidity, wind direction/speed/gust, max daily gust, solar radiation, UV) alongside the existing flat keys, so WH68 entities are correctly attached to their own device regardless of which format the gateway reports. (issue #231)
+
+## [1.7.19] - 2026-08-20
+
+### Added
+- **RSSI and Signal Quality diagnostic sensors**: `get_sensors_info` reports both a coarse `signal` bar (0-4, exposed today as the "Signal Strength" %) and a raw `rssi` dBm value for every sensor, but only `signal` was ever read. The 0-4 scale is too coarse to tell a marginal link from an excellent one — two sensors can both report `signal: 4` (100%) while one sits at -36 dBm and the other at -101 dBm. Two new diagnostic entities now surface the raw value: `sensor.ecowitt_rssi_<hw>` (the raw dBm reading, `device_class: signal_strength`) and `sensor.ecowitt_signal_quality_<hw>` (a linear 0-100% derived from rssi: `2*(rssi_dbm+100)`, clamped, so -100 dBm → 0% and -50 dBm → 100%). Both are skipped when the gateway doesn't report `rssi` for a sensor (missing field or `"--"`) or reports a non-numeric value. (issue #228)
+
+## [1.7.18] - 2026-08-18
+
+### Fixed
+- **`last_seen`/`last_update` still forced a recorder `states` row every poll after v1.7.16**: The v1.7.16 fix marked `last_seen` as `_unrecorded_attributes`, which stops the *attribute blob* from being persisted to the `state_attributes` table, but doesn't affect whether Home Assistant considers the poll a state change in the first place — that comparison happens on the full attribute dict before `_unrecorded_attributes` is ever consulted. Since `last_seen` still changed every poll, the attributes dict was never equal to the previous poll's, so HA still emitted a full `state_changed` event and the recorder still wrote a `states` row every poll, even when the sensor's value hadn't moved. The `last_seen` attribute (and the equivalent raw `last_update` value previously leaking through on `EcowittStateBinarySensor`, e.g. `binary_sensor.ecowitt_rain_*`) is now removed from entity attributes entirely instead of merely marked unrecorded, so unchanged-value polls compare equal and take Home Assistant's quiet `last_reported`-only path with no recorder write at all. Home Assistant's built-in `last_reported` timestamp (visible in the entity's more-info dialog, core since 2024.7) already answers "when did we last hear from this sensor" without this problem. (issue #223)
+
+## [1.7.17] - 2026-08-17
+
+### Fixed
+- **LDS01 liquid depth sensor entities could collide with other unregistered channel sensors**: The LDS01 (Ecowitt's current liquid-depth sensor) shares its livedata format with the already-supported WH54, but on some gateways it never appears in `get_sensors_info` at all — not even as an `FFFFFFFE` placeholder — so the integration has no hardware ID to build a dedicated device from. In that case entities fall back to a generic `sensor.ecowitt_<type>_ch{N}` ID. For the LDS battery and voltage keys specifically, that fallback collapsed to the same generic `sensor.ecowitt_battery_ch{N}` / `sensor.ecowitt_voltage_ch{N}` IDs used by other unregistered channel-based sensors (e.g. WH34 temperature-probe battery, WH35 leaf-wetness battery), so an LDS01 sharing a channel number with one of those would silently overwrite or get renamed away from it in the entity registry. LDS battery and voltage keys now resolve to distinct `lds_battery`/`lds_voltage` entity-ID segments (e.g. `sensor.ecowitt_lds_battery_ch1`), so they can no longer collide with another sensor type's fallback entity. (issue #220)
+
+## [1.7.16] - 2026-08-10
+
+### Fixed
+- **`last_seen` attribute forced a recorder write on every poll for every entity**: The per-entity `last_seen` attribute (populated from the sensor's `last_update` timestamp) changed on every coordinator poll regardless of whether the underlying sensor value changed, causing Home Assistant's recorder to log a new `states`/`state_attributes` row every poll cycle for every entity. On a busy install this dominated recorder database growth. `last_seen` is now marked as an unrecorded attribute (`_unrecorded_attributes`) on sensor and per-sensor online binary-sensor entities, so it's still visible live in the entity's current state but is no longer persisted to history/logbook on every poll. The attribute itself is unchanged and continues to work in dashboards and templates — this only affects what gets written to the recorder database. (issue #223)
+
 ## [1.7.15] - 2026-08-01
 
 ### Added

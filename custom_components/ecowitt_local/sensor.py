@@ -34,13 +34,13 @@ from .const import (
     ATTR_DEVICE_MODEL,
     ATTR_FIRMWARE_VERSION,
     ATTR_HARDWARE_ID,
-    ATTR_LAST_SEEN,
     ATTR_SENSOR_TYPE,
     ATTR_SIGNAL_STRENGTH,
     DOMAIN,
     MANUFACTURER,
 )
 from .coordinator import EcowittLocalDataUpdateCoordinator
+from .device_compat import via_device_kwargs
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -269,10 +269,10 @@ class EcowittLocalSensor(
                     name=f"Ecowitt {sensor_type_name} {self._hardware_id}",
                     manufacturer=MANUFACTURER,
                     model=device_model,
-                    via_device=(DOMAIN, gateway_id),
                     suggested_area=(
                         "Outdoor" if self._is_outdoor_sensor(sensor_info) else None
                     ),
+                    **via_device_kwargs(self.hass, gateway_id),
                 )
             else:
                 _LOGGER.debug(
@@ -344,10 +344,6 @@ class EcowittLocalSensor(
                 except (ValueError, TypeError):
                     pass
 
-        # Add timing information
-        if attributes.get("last_update"):
-            extra_attrs[ATTR_LAST_SEEN] = attributes["last_update"]
-
         # Add sensor type
         extra_attrs[ATTR_SENSOR_TYPE] = self._category
 
@@ -412,6 +408,19 @@ class EcowittLocalSensor(
                 else:
                     return "mdi:battery"
             return "mdi:battery"
+
+        if self._sensor_key.startswith("signal_quality_"):
+            quality = self._attr_native_value
+            if isinstance(quality, (int, float)):
+                if quality >= 75:
+                    return "mdi:signal-cellular-3"
+                elif quality >= 50:
+                    return "mdi:signal-cellular-2"
+                elif quality >= 25:
+                    return "mdi:signal-cellular-1"
+                else:
+                    return "mdi:signal-cellular-outline"
+            return "mdi:signal-cellular-outline"
 
         # Use device class icons or custom ones
         sensor_icons = {

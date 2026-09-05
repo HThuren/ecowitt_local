@@ -21,7 +21,6 @@ from .const import (
     ATTR_CHANNEL,
     ATTR_DEVICE_MODEL,
     ATTR_HARDWARE_ID,
-    ATTR_LAST_SEEN,
     ATTR_SENSOR_TYPE,
     ATTR_SIGNAL_STRENGTH,
     BINARY_SENSORS,
@@ -29,6 +28,7 @@ from .const import (
     MANUFACTURER,
 )
 from .coordinator import EcowittLocalDataUpdateCoordinator
+from .device_compat import via_device_kwargs
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -239,10 +239,10 @@ class EcowittSensorOnlineBinarySensor(
                     name=f"Ecowitt {sensor_type_name} {self._hardware_id}",
                     manufacturer=MANUFACTURER,
                     model=device_model,
-                    via_device=(DOMAIN, gateway_id),
                     suggested_area=(
                         "Outdoor" if self._is_outdoor_sensor(sensor_info) else None
                     ),
+                    **via_device_kwargs(self.hass, gateway_id),
                 )
 
         # Fall back to gateway device
@@ -288,9 +288,6 @@ class EcowittSensorOnlineBinarySensor(
                         )
                     except (ValueError, TypeError):
                         pass
-                if sensor_attributes.get("last_update"):
-                    attributes[ATTR_LAST_SEEN] = sensor_attributes["last_update"]
-
                 # Only need info from one sensor with this hardware ID
                 break
 
@@ -423,7 +420,7 @@ class EcowittStateBinarySensor(
                     name=f"Ecowitt {sensor_info.get('sensor_type', 'Sensor')} {self._hardware_id}",
                     manufacturer=MANUFACTURER,
                     model=device_model,
-                    via_device=(DOMAIN, gateway_id),
+                    **via_device_kwargs(self.hass, gateway_id),
                 )
 
         return DeviceInfo(
@@ -443,7 +440,11 @@ class EcowittStateBinarySensor(
         attrs = info.get("attributes", {})
         return {
             ATTR_HARDWARE_ID: self._hardware_id,
-            **{k: v for k, v in attrs.items() if k not in ("hardware_id",)},
+            **{
+                k: v
+                for k, v in attrs.items()
+                if k not in ("hardware_id", "last_update")
+            },
         }
 
     @callback
